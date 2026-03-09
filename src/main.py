@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import urllib.parse
+from os.path import dirname
 from pathlib import Path
 import re
 import random
@@ -44,16 +45,17 @@ async def main() -> None:
 
         # Retrieve the Actor input, and use default values if not provided.
         actor_input = await Actor.get_input() or {}
-        
+
         # Determine which keywords file to use based on input or default to test.
         # This allows you to override it via Apify input when running LIVE.
-        csv_file_path = actor_input.get('keywords_file', '/Users/onetiger/projects/AI/JobSeek/data/fiverr-keywords-data.csv')
-        
+        csv_file_path = actor_input.get('keywords_file', dirname(__file__) +
+                                        '/../storage/fiverr-keywords-data.csv')
+
         keywords = []
         try:
             with open(csv_file_path, "r", encoding="utf-8") as f:
                 reader = csv.reader(f)
-                next(reader, None) # skip header
+                next(reader, None)  # skip header
                 for row in reader:
                     if row and row[0].strip():
                         keywords.append(row[0].strip())
@@ -73,7 +75,7 @@ async def main() -> None:
 
         # Create a proxy configuration using Apify proxies
         proxy_configuration = await Actor.create_proxy_configuration()
-        
+
         # Create a crawler.
         crawler = BeautifulSoupCrawler(
             proxy_configuration=proxy_configuration,
@@ -91,7 +93,7 @@ async def main() -> None:
             keyword = query_params.get('query', [''])[0]
 
             amount = "Unknown"
-            
+
             # Extract the desired data.
             # Look for an element with class 'number-of-results'
             results_elem = context.soup.select_one('.number-of-results')
@@ -115,7 +117,7 @@ async def main() -> None:
             await context.push_data(data)
 
         dataset_target_path = Path(csv_file_path).parent / 'fiverr-results.csv'
-        
+
         # Start with a fresh export file and write the header
         with open(dataset_target_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=['keyword', 'amount', 'url'])
@@ -123,34 +125,34 @@ async def main() -> None:
 
         # Process URLs in batches of 3
         batch_size = 3
-        
+
         # Get the dataset to track the current offset
         dataset = await Actor.open_dataset()
         dataset_offset = 0
 
         for i in range(0, len(start_urls), batch_size):
             batch = start_urls[i:i + batch_size]
-            Actor.log.info(f'Processing batch {i//batch_size + 1} ({len(batch)} URLs)...')
-            
+            Actor.log.info(f'Processing batch {i // batch_size + 1} ({len(batch)} URLs)...')
+
             # Run crawler for current batch
             await crawler.run(batch)
-            
+
             # Fetch newly added items
             items_response = await dataset.get_data(offset=dataset_offset)
             new_items = items_response.items
-            
+
             # Append new items to CSV
             if new_items:
                 with open(dataset_target_path, 'a', newline='', encoding='utf-8') as f:
                     writer = csv.DictWriter(f, fieldnames=['keyword', 'amount', 'url'])
                     for item in new_items:
                         writer.writerow(item)
-                
+
                 Actor.log.info(f'Saved {len(new_items)} results to CSV.')
                 dataset_offset += len(new_items)
-            
+
             # Wait for 2 seconds before proceeding to the next batch
             Actor.log.info('Waiting 2 seconds before the next batch...')
             await asyncio.sleep(2)
-            
+
         Actor.log.info(f'Export complete. Processed {dataset_offset} total items.')
