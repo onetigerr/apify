@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import urllib.parse
+import urllib.request
 from os.path import dirname
 from pathlib import Path
 import re
@@ -43,24 +44,37 @@ async def main() -> None:
 
         Actor.on(Event.ABORTING, on_aborting)
 
-        # Retrieve the Actor input, and use default values if not provided.
+        # Retrieve the Actor input
         actor_input = await Actor.get_input() or {}
 
-        # Determine which keywords file to use based on input or default to test.
-        # This allows you to override it via Apify input when running LIVE.
-        csv_file_path = actor_input.get('keywords_file', dirname(__file__) +
-                                        '/../storage/fiverr-keywords-data.csv')
-
         keywords = []
-        try:
-            with open(csv_file_path, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
+        csv_url = actor_input.get('keywords_csv_url')
+        direct_keywords = actor_input.get('keywords', [])
+
+        # Fetch from remote CSV URL if provided (standard Apify way for large lists)
+        if csv_url:
+            Actor.log.info(f'Fetching keywords from CSV URL: {csv_url}')
+            try:
+                # Synchronous request running in executor to not block event loop
+                def fetch_csv():
+                    req = urllib.request.Request(csv_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req) as response:
+                        return response.read().decode('utf-8').splitlines()
+
+                csv_lines = await asyncio.to_thread(fetch_csv)
+                reader = csv.reader(csv_lines)
                 next(reader, None)  # skip header
                 for row in reader:
                     if row and row[0].strip():
                         keywords.append(row[0].strip())
-        except FileNotFoundError:
-            Actor.log.error(f'Could not find the keywords CSV file at {csv_file_path}')
+            except Exception as e:
+                Actor.log.error(f'Failed to fetch or parse CSV from {csv_url}: {e}')
+                await Actor.exit()
+        elif direct_keywords:
+            Actor.log.info('Using direct keywords from input.')
+            keywords = [k.strip() for k in direct_keywords if k.strip()]
+        else:
+            Actor.log.error('No keywords provided! Provide "keywords_csv_url" or "keywords" array in input.')
             await Actor.exit()
 
         start_urls = [
@@ -116,43 +130,23 @@ async def main() -> None:
             # Store the extracted data to the default dataset.
             await context.push_data(data)
 
-        dataset_target_path = Path(csv_file_path).parent / 'fiverr-results.csv'
-
-        # Start with a fresh export file and write the header
-        with open(dataset_target_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['keyword', 'amount', 'url'])
-            writer.writeheader()
-
+        # No more local Path resolution for final dataset CSV!
+        # Apify Actors push their output exactly using context.push_data(), which pushes to the default Dataset.
+        # The user can then export this dataset to CSV natively from the Apify console / API.
+        # If we also want to write a local copy (e.g. for testing), we can use the default local storage path.
+        
         # Process URLs in batches of 3
         batch_size = 3
-
-        # Get the dataset to track the current offset
-        dataset = await Actor.open_dataset()
-        dataset_offset = 0
 
         for i in range(0, len(start_urls), batch_size):
             batch = start_urls[i:i + batch_size]
             Actor.log.info(f'Processing batch {i // batch_size + 1} ({len(batch)} URLs)...')
 
-            # Run crawler for current batch
+            # Run crawler for current batch. The request_handler pushes directly to the Apify dataset!
             await crawler.run(batch)
-
-            # Fetch newly added items
-            items_response = await dataset.get_data(offset=dataset_offset)
-            new_items = items_response.items
-
-            # Append new items to CSV
-            if new_items:
-                with open(dataset_target_path, 'a', newline='', encoding='utf-8') as f:
-                    writer = csv.DictWriter(f, fieldnames=['keyword', 'amount', 'url'])
-                    for item in new_items:
-                        writer.writerow(item)
-
-                Actor.log.info(f'Saved {len(new_items)} results to CSV.')
-                dataset_offset += len(new_items)
 
             # Wait for 2 seconds before proceeding to the next batch
             Actor.log.info('Waiting 2 seconds before the next batch...')
             await asyncio.sleep(2)
 
-        Actor.log.info(f'Export complete. Processed {dataset_offset} total items.')
+        Actor.log.info(f'Scraping complete! {len(start_urls)} total items processed. Download your data from the Apify Dataset (CSV/JSON).')

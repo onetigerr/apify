@@ -1,20 +1,24 @@
 {
     "$schema": "https://apify.com/schemas/v1/input.ide.json",
-    "title": "Python Crawlee BeautifulSoup Scraper",
+    "title": "Fiverr Keyword Scraper",
     "type": "object",
     "schemaVersion": 1,
     "properties": {
-        "start_urls": {
-            "title": "Start URLs",
+        "keywords_csv_url": {
+            "title": "Keywords CSV URL",
+            "type": "string",
+            "description": "Direct URL to a CSV file (e.g., hosted on Apify Key-Value Store, Google Sheets, etc.). The first column should contain keywords.",
+            "editor": "textfield"
+        },
+        "keywords": {
+            "title": "Direct Keywords List",
             "type": "array",
-            "description": "URLs to start with",
+            "description": "List of keywords to scrape. Used if CSV URL is not provided.",
             "prefill": [
-                {
-                    "url": "https://apify.com"
-                }
+                "web scraping",
+                "python automation"
             ],
-            "editor": "requestListSources"
+            "editor": "stringList"
         }
-    },
-    "required": ["start_urls"]
+    }
 }
