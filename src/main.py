@@ -87,8 +87,11 @@ async def main() -> None:
             Actor.log.info('No start URLs specified in Actor input, exiting...')
             await Actor.exit()
 
-        # Create a proxy configuration using Apify proxies
-        proxy_configuration = await Actor.create_proxy_configuration()
+        # Create a proxy configuration using Apify Residential proxies
+        # Fiverr aggressively blocks Datacenter IPs (Error 403), so we MUST use Residential IPs.
+        proxy_configuration = await Actor.create_proxy_configuration(
+            groups=['RESIDENTIAL']
+        )
 
         # Create a crawler.
         crawler = BeautifulSoupCrawler(
