@@ -150,6 +150,6 @@ async def main() -> None:
 
             # Wait for 2 seconds before proceeding to the next batch
             Actor.log.info('Waiting 2 seconds before the next batch...')
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.1)
 
         Actor.log.info(f'Scraping complete! {len(start_urls)} total items processed. Download your data from the Apify Dataset (CSV/JSON).')
